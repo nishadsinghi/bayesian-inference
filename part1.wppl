@@ -1,70 +1,80 @@
-var applyProduction = function(inputString, nonTerminal, rules, probabilities){
-	var p = sample(Categorical({ps: probabilities, vs: rules}))
-	return inputString.replace(nonTerminal, p)
+var applyProduction = function(inputString, nonTerminal, rightSide, probabilities){
+  var p = sample(Categorical({ps: probabilities, vs: rightSide}))
+  return inputString.replace(nonTerminal, p)
 }
 
 var firstNonTerminalIndex = function(inputString, nonTerminals){
-	// takes a string and tells if it contains any non-terminal variables
-	// nonTerminals is a list (which also contains "S" by default)
-    var containsChar = function(char){
-      return (inputString.indexOf(char) != -1)
-    }
-    
-    var containsNonTerminals = map(containsChar, nonTerminals)
-    var id = containsNonTerminals.indexOf(true)
-    if(id == -1){return -1}
-    else{return id}
+  // takes a string and tells if it contains any non-terminal variables
+  // nonTerminals is a list (which also contains "S" by default)
+  var containsChar = function(char){
+    return (inputString.indexOf(char) != -1)
+  }
+
+  var containsNonTerminals = map(containsChar, nonTerminals)
+  var id = containsNonTerminals.indexOf(true)
+  if(id == -1){return -1}
+  else{return id}
 }
 
-var prog = function(inputString, nonTerminals, rules, probabilities){
-	// There are three lists:
-	// 1) nonTerminals: contains the symbols on the left side of the production rules
-	// 2) rules: contains the symbols on the right side of the production rules
-	// 3) probabilities: contains the probabilities of all the rules
+var prog = function(inputString, nonTerminals, rightSide, probabilities){
+//   display(inputString)
+  // There are three lists:
+  // 1) nonTerminals: contains the symbols on the left side of the production rules
+  // 2) rightSide: contains the symbols on the right side of the production rules
+  // 3) probabilities: contains the probabilities of all the rules
 
-    var index = firstNonTerminalIndex(inputString, nonTerminals)
+  //   display(inputString)
   
-	// termination statement
-	if(index == -1){
-		return inputString
-	}
+  var index = firstNonTerminalIndex(inputString, nonTerminals)
 
-	//recursion statement
-	else{
-      var s = applyProduction(inputString, nonTerminals[index], rules[index], probabilities[index])
-      return prog(s, nonTerminals, rules, probabilities)
-	}
+  // termination statement
+  if(index == -1){
+    return inputString
+  }
+
+  //recursion statement
+  else{
+    var s = applyProduction(inputString, nonTerminals[index], rightSide[index], probabilities[index])
+    return prog(s, nonTerminals, rightSide, probabilities)
+  }
 }
 
-var trial = function(isProg1){
-	var nonTerminals1 = ["S"]
-	var rules1 = [["aSb", "bSa", "a", "b"]]
-	var probabilities1 = [[0.5, 0.2, 0.1, 0.2]]
+var makeModel = function(isProg1){
+  // description of the PCFGs
+  var nonTerminals1 = ["S"]
+  var rightSide1 = [["aSb", "bSa", "a", "b"]]
+  var probabilities1 = [[0.5, 0.2, 0.1, 0.2]]
 
- var theta = sample(Beta({a: 0.1, b: 0.1}))
+  var theta = sample(Beta({a: 0.1, b: 0.1}))
 
-	var nonTerminals2 = ["S", "Y", "X"]
-	var rules2 = [["Xa", "bY"], ["aY", "b"], ["Xb", "a"]]
-	var probabilities2 = [[theta, 1-theta], [0.4, 0.6], [0.2, 0.8]]
+  var nonTerminals2 = ["S", "Y", "X"]
+  var rightSide2 = [["Xa", "bY"], ["aY", "b"], ["Xb", "a"]]
+  var probabilities2 = [[theta, 1-theta], [0.4, 0.6], [0.2, 0.8]]
+  // description ends
 
-	if(isProg1){
-		return [prog("S", nonTerminals1, rules1, probabilities1), isProg1]
-	}
-
-	else{
-		return [prog("S", nonTerminals2, rules2, probabilities2), isProg1]	
-	}
+  return function(){
+//     display(isProg1)
+    if(isProg1){
+      return repeat(2, prog("S", nonTerminals1, rightSide1, probabilities1))
+    }
+    else{
+      return repeat(2, prog("S", nonTerminals2, rightSide2, probabilities2))
+    }
+  }
 }
 
-var model = function(){
-	var isProg1 = flip(0.7)
-	var output = trial(isProg1)
+// display(makeModel(0)())
 
-	condition(output[0] == "a")
-	return output[1]
+var dist = function(isProg1){
+  var options = {method: 'MCMC', kernel: 'MH', samples: 1000}
+  return Infer(options, makeModel(isProg1))
+}
+
+var m = function(){
+  var isProg1 = flip(0.7)
+  observe(dist(isProg1), ["aba", "bb"])
+  return isProg1
 }
 
 var options = {method: 'MCMC', kernel: 'MH', samples: 100}
-var dist = Infer(options, model)
-
-viz(dist)
+display(Infer(options, m))
