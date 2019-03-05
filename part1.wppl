@@ -1,3 +1,10 @@
+var createListN = function(N){
+  //termination statement
+  if(N == 1){return [1]}
+  //recursion statement
+  else{return createListN(N-1).concat([N])}
+}
+
 var applyProduction = function(inputString, nonTerminal, rightSide, probabilities){
   var p = sample(Categorical({ps: probabilities, vs: rightSide}))
   return inputString.replace(nonTerminal, p)
@@ -6,10 +13,7 @@ var applyProduction = function(inputString, nonTerminal, rightSide, probabilitie
 var firstNonTerminalIndex = function(inputString, nonTerminals){
   // takes a string and tells if it contains any non-terminal variables
   // nonTerminals is a list (which also contains "S" by default)
-  var containsChar = function(char){
-    return (inputString.indexOf(char) != -1)
-  }
-
+  var containsChar = function(char){return (inputString.indexOf(char) != -1)}
   var containsNonTerminals = map(containsChar, nonTerminals)
   var id = containsNonTerminals.indexOf(true)
   if(id == -1){return -1}
@@ -17,21 +21,10 @@ var firstNonTerminalIndex = function(inputString, nonTerminals){
 }
 
 var prog = function(inputString, nonTerminals, rightSide, probabilities){
-//   display(inputString)
-  // There are three lists:
-  // 1) nonTerminals: contains the symbols on the left side of the production rules
-  // 2) rightSide: contains the symbols on the right side of the production rules
-  // 3) probabilities: contains the probabilities of all the rules
-
-  //   display(inputString)
-  
+  //This function exectues a program recursively
   var index = firstNonTerminalIndex(inputString, nonTerminals)
-
   // termination statement
-  if(index == -1){
-    return inputString
-  }
-
+  if(index == -1){return inputString}
   //recursion statement
   else{
     var s = applyProduction(inputString, nonTerminals[index], rightSide[index], probabilities[index])
@@ -39,42 +32,55 @@ var prog = function(inputString, nonTerminals, rightSide, probabilities){
   }
 }
 
-var makeModel = function(isProg1){
-  // description of the PCFGs
-  var nonTerminals1 = ["S"]
-  var rightSide1 = [["aSb", "bSa", "a", "b"]]
-  var probabilities1 = [[0.5, 0.2, 0.1, 0.2]]
-
-  var theta = sample(Beta({a: 0.1, b: 0.1}))
-
-  var nonTerminals2 = ["S", "Y", "X"]
-  var rightSide2 = [["Xa", "bY"], ["aY", "b"], ["Xb", "a"]]
-  var probabilities2 = [[theta, 1-theta], [0.4, 0.6], [0.2, 0.8]]
-  // description ends
-
-  return function(){
-//     display(isProg1)
-    if(isProg1){
-      return repeat(2, prog("S", nonTerminals1, rightSide1, probabilities1))
-    }
-    else{
-      return repeat(2, prog("S", nonTerminals2, rightSide2, probabilities2))
-    }
+var genStrings = function(progIndex){
+  // model description 
+  var G1 = {
+    nonTerminals: ["S"],
+    rightSide: [["aSb", "bSa", "a", "b"]],
+    probabilities: [[0.5, 0.2, 0.1, 0.2]]
   }
+  var theta = beta(0.1, 0.1)
+  var G2 = {
+    nonTerminals: ["S", "Y", "X"],
+    rightSide: [["Xa", "bY"], ["aY", "b"], ["Xb", "a"]],
+    probabilities: [[theta, 1-theta], [0.4, 0.6], [0.2, 0.8]]
+  }
+  var G = [G1, G2]
+  
+  return prog("S", G[progIndex-1].nonTerminals, G[progIndex-1].rightSide, G[progIndex-1].probabilities)
 }
 
-// display(makeModel(0)())
+var dist = function(progIndex){
+  var options = {method: 'MCMC', kernel: 'MH', samples: 100}  
+//   var options = {method: 'SMC', particles: 200}
+  return Infer(options, function(){genStrings(progIndex)})
+  }
 
-var dist = function(isProg1){
-  var options = {method: 'MCMC', kernel: 'MH', samples: 1000}
-  return Infer(options, makeModel(isProg1))
+var observeString = function(progIndex, observations, N){
+  //termination case
+  if(N == 1){
+    observe(dist(progIndex), observations[0])
+    return
+  }
+  //recursion case
+  observe(dist(progIndex), observations[N-1])
+  observeString(progIndex, observations, N-1)
 }
 
-var m = function(){
-  var isProg1 = flip(0.7)
-  observe(dist(isProg1), ["aba", "bb"])
-  return isProg1
+var m = function(priors, observations){
+  var numProgs = priors.length
+  var listOfPrograms = createListN(numProgs)
+  var progIndex = sample(Categorical({ps: priors, vs: listOfPrograms}))    
+
+  observeString(progIndex, observations, observations.length)
+
+  return progIndex
 }
 
-var options = {method: 'MCMC', kernel: 'MH', samples: 100}
-display(Infer(options, m))
+var priors = [0.7, 0.3]
+var observations = ["baab","bb","bb","aba","aa","bab","bab","aa","aa","aa","bb","bb","bb","bb","bab","aa","aa","aa","aa","bb"]
+
+// repeat(20, function(){genStrings(2)})
+
+var options = {method: 'SMC', particles: 400}
+display(Infer(options, function(){m(priors, observations)}))
