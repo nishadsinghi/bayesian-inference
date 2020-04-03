@@ -1,0 +1,96 @@
+var leftMostNonTerminalInString = function(string, allNonTerminals){
+  var returnIndexOfCharInString = function(character){return string.indexOf(character)}
+  var positionsOfAllNonTerminalsInString = map(returnIndexOfCharInString, allNonTerminals)
+  var positionsOfAllNonTerminalsPresentInString = filter(function(index){return index != -1}, positionsOfAllNonTerminalsInString)
+  var positionsOfAllNonTerminalsSorted = sort(positionsOfAllNonTerminalsPresentInString)
+  var positionOfLeftMostNonTerminal = positionsOfAllNonTerminalsSorted[0]
+  var leftMostNonTerminal = string[positionOfLeftMostNonTerminal]
+  var indexOfLeftMostNonTerminal = allNonTerminals.indexOf(leftMostNonTerminal)
+  if(indexOfLeftMostNonTerminal == -1){
+    return {index: -1, positionInString: -1}
+  }
+  else{
+    return {index: indexOfLeftMostNonTerminal, positionInString: positionOfLeftMostNonTerminal}
+  }
+}
+
+var applyProductionToNonTerminal = function(string, nonTerminal, allRightSides, allProbabilities){
+  var rightSide = sample(Categorical({ps: allProbabilities, vs: allRightSides}))
+  return string.replace(nonTerminal, rightSide)
+}
+
+var createLeftMostTree = function(initialString, program){
+  var leftMostTerminalInInitialString = leftMostNonTerminalInString(initialString, program.nonTerminals)
+  if(leftMostTerminalInInitialString.index == -1){return initialString}
+  else{
+    var leftMostNonTerminal = program.nonTerminals[leftMostTerminalInInitialString.index]
+    var allRightSides = program.allRightSides[leftMostTerminalInInitialString.index]
+    var allProbabilities = program.allProbabilities[leftMostTerminalInInitialString.index]
+    return createLeftMostTree(applyProductionToNonTerminal(initialString, leftMostNonTerminal, allRightSides, allProbabilities), program)
+  }
+}
+
+var runProgramFromProgramIndex = function(programIndex){
+  var program1 = {
+    nonTerminals: ["S"],
+    allRightSides: [["aSb", "bSa", "a", "b"]],
+    allProbabilities: [[0.5, 0.2, 0.1, 0.2]],
+  }
+
+  var theta = beta(0.1, 0.1)
+  var program2 = {
+    nonTerminals: ["S", "Y", "X"],
+    allRightSides: [["Xa", "bY"], ["aY", "b"], ["Xb", "a"]],
+    allProbabilities: [[theta, 1-theta], [0.4, 0.6], [0.2, 0.8]],
+  }
+  
+  var allPrograms = [program1, program2]
+  return createLeftMostTree("S", allPrograms[programIndex])
+}
+
+var generateObservationsFromProgrm = function(priors, numObservations){
+  var numPrograms = priors.length
+  var selectedProgramIndex = sample(Categorical({ps: priors, vs: mapN(function(x){return x}, numPrograms)}))
+  var observedStrings = repeat(numObservations, function(){return runProgramFromProgramIndex(selectedProgramIndex)})
+  return observedStrings
+}
+
+var areSameArrays = function(array1, array2){
+  var isEqual = function(a, b){return a == b}
+  var truthTable = map2(isEqual, sort(array1), sort(array2))
+  
+  return all(function(x){return x}, truthTable)
+}
+
+var inferenceFunction = function(observations){
+  // MODEL DESCRIPTION
+  var priors = [0.7, 0.3]
+  var program1 = {
+    nonTerminals: ["S"],
+    allRightSides: [["aSb", "bSa", "a", "b"]],
+    allProbabilities: [[0.5, 0.2, 0.1, 0.2]],
+  }
+
+  var theta = beta(0.1, 0.1)
+  var program2 = {
+    nonTerminals: ["S", "Y", "X"],
+    allRightSides: [["Xa", "bY"], ["aY", "b"], ["Xb", "a"]],
+    allProbabilities: [[theta, 1-theta], [0.4, 0.6], [0.2, 0.8]],
+  }
+  
+  var allPrograms = [program1, program2]  
+  var numPrograms = priors.length
+  
+  var numObservations = observations.length
+  var programIndex = sample(Categorical({ps: priors, vs: mapN(function(x){return x}, numPrograms)}))
+  var allGeneratedStrings = repeat(numObservations, function(){return createLeftMostTree("S", allPrograms[programIndex])})
+  
+  condition(areSameArrays(allGeneratedStrings, observations))
+  return programIndex
+}
+
+// var observations = ["baab","bb","bb","aba","aa","bab","bab"]//,"aa","aa","aa","bb","bb","bb","bb","bab","aa","aa","aa","aa","bb"]
+var observations = ["bba","aabbb","abbbaab","abb"]//,"bba","abb","b"]
+var options = {method: 'MCMC', kernel: 'MH', samples: 100000}
+var distribution = Infer(options, function(){return inferenceFunction(observations)})
+viz(distribution)
